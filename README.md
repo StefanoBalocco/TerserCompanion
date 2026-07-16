@@ -16,7 +16,7 @@ Standalone JavaScript source transform that detects profitable repeated safe str
 ## Installation
 
 ```sh
-pnpm add @stefanobalocco/tersercompanion
+npm add @stefanobalocco/tersercompanion
 ```
 
 TypeScript runtime required. ESM only.
@@ -47,7 +47,7 @@ TerserCompanion pairs naturally after minification: Terser removes the most redu
 Terser is an optional consumer-side dependency.
 
 ```sh
-pnpm add terser
+npm add terser
 ```
 
 ```javascript

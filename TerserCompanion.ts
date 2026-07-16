@@ -854,7 +854,7 @@ function applyCandidates(
 		              + returnValue.slice( replacement.end );
 	}
 
-	const declaration: string = insertion.prefix + 'const ' + declarationParts.join( ',' ) + ';\n';
+	const declaration: string = insertion.prefix + 'const ' + declarationParts.join( ',' ) + ';';
 
 	returnValue = returnValue.slice( 0, insertion.point )
 	              + declaration
