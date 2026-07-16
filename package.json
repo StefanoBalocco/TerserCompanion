@@ -1,0 +1,56 @@
+{
+	"name": "@stefanobalocco/tersercompanion",
+	"description": "Optimizes JavaScript source by aliasing repeated expressions.",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "TerserCompanion.js",
+	"types": "TerserCompanion.d.ts",
+	"exports": {
+		".": {
+			"types": "./TerserCompanion.d.ts",
+			"import": "./TerserCompanion.js"
+		}
+	},
+	"files": [
+		"TerserCompanion.d.ts",
+		"TerserCompanion.js",
+		"TerserCompanion.js.map",
+		"TerserCompanion.test.js",
+		"TerserCompanion.test.ts",
+		"TerserCompanion.ts",
+		"build.mjs",
+		"tsconfig.json",
+		"tsconfig.tests.json"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/StefanoBalocco/TerserCompanion.git"
+	},
+	"keywords": [
+		"compress",
+		"minify",
+		"terser"
+	],
+	"author": "Stefano Balocco <stefano.balocco@gmail.com>",
+	"license": "BSD-3-Clause",
+	"bugs": {
+		"url": "https://github.com/StefanoBalocco/TerserCompanion/issues"
+	},
+	"homepage": "https://github.com/StefanoBalocco/TerserCompanion",
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "node build.mjs all",
+		"build:library": "node build.mjs library",
+		"build:tests": "node build.mjs tests",
+		"tests": "c8 --include=TerserCompanion.ts --exclude-after-remap --per-file --100 --reporter=text --reporter=lcov ava '*.test.js' --verbose"
+	},
+	"devDependencies": {
+		"ava": "~6",
+		"c8": "~12"
+	},
+	"dependencies": {
+		"typescript": "~6"
+	}
+}
