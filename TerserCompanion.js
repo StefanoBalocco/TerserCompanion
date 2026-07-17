@@ -85,18 +85,11 @@ const config = {
     aliasAlphabetSize: 26,
     aliasFirstCharacterCode: 97
 };
-/**
- * Moves profitable repeated string literals and whitelisted call targets into
- * one top-level const declaration. Alias names are assigned as a..z, aa..zz,
- * and so on. Existing identifiers and reserved words are skipped.
- */
 export default function TerserCompanion(source, options = {}) {
     const functionsToAliasRaw = options.functionsToAlias ?? defaultFunctionsToAlias;
     const classesToAliasRaw = options.classesToAlias ?? defaultClassesToAlias;
-    // Deduplicate preserving first-seen order via Set insertion order
     const functionsToAlias = [...new Set(functionsToAliasRaw)];
     const classesToAlias = [...new Set(classesToAliasRaw)];
-    // Overlap: remove function paths whose root is also in classesToAlias
     const classRoots = new Set(classesToAlias);
     const filteredFunctionsToAlias = functionsToAlias.filter((path) => {
         const dotIndex = path.indexOf('.');
@@ -104,8 +97,6 @@ export default function TerserCompanion(source, options = {}) {
         return !classRoots.has(root);
     });
     const sourceFile = ts.createSourceFile(config.sourceFileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-    // In-memory TypeScript Program over the single .js source for syntactic
-    // diagnostics that reject TS-only grammar in ScriptKind.JS mode.
     const compilerOptions = {
         allowJs: true,
         noEmit: true,
@@ -161,7 +152,6 @@ export default function TerserCompanion(source, options = {}) {
     }
     else {
         const candidates = collectCandidates(sourceFile, bindings, filteredFunctionsToAlias, classesToAlias);
-        // Inline compareCandidates
         candidates.sort((left, right) => {
             let comparison = right.count - left.count;
             if (0 === comparison) {
@@ -187,10 +177,6 @@ export default function TerserCompanion(source, options = {}) {
     }
     return returnValue;
 }
-/**
- * Single AST traversal that collects all identifiers, declared bindings,
- * JSX presence, namespace export declarations, and decorators.
- */
 function collectIdentifiersAndBindings(sourceFile) {
     const identifiers = new Set();
     const bindings = new Set();
@@ -286,7 +272,6 @@ function collectCandidates(sourceFile, bindings, functionsToAlias, classesToAlia
     const classSet = new Set(classesToAlias);
     const roots = new Set();
     const returnValue = [];
-    // Extract root identifiers for function paths
     const cL1 = functionsToAlias.length;
     for (let iL1 = 0; iL1 < cL1; iL1++) {
         const path = functionsToAlias[iL1];
@@ -332,7 +317,6 @@ function collectCandidates(sourceFile, bindings, functionsToAlias, classesToAlia
             if (ts.isIdentifier(callee)) {
                 const path = callee.text;
                 if (functionSet.has(path) && !blockedRoots.has(path)) {
-                    // Bare function identifier: root = path
                     addOccurrence(functionOccurrences, path, {
                         start: callee.getStart(sourceFile),
                         end: callee.end
@@ -340,8 +324,6 @@ function collectCandidates(sourceFile, bindings, functionsToAlias, classesToAlia
                 }
             }
             else if (ts.isPropertyAccessExpression(callee) && !callee.questionDotToken) {
-                // Walk the property access chain to find the leftmost
-                // identifier and build the full dotted path.
                 const pathParts = [];
                 let currentExpr = callee;
                 while (ts.isPropertyAccessExpression(currentExpr) && !currentExpr.questionDotToken) {
@@ -354,9 +336,6 @@ function collectCandidates(sourceFile, bindings, functionsToAlias, classesToAlia
                     const fullPath = pathParts.join('.');
                     if (!blockedRoots.has(root)) {
                         if (functionSet.has(fullPath)) {
-                            // Root-based aliasing: record root identifier span,
-                            // grouping all whitelisted root.method calls under
-                            // the same root key.
                             addOccurrence(functionOccurrences, root, {
                                 start: currentExpr.getStart(sourceFile),
                                 end: currentExpr.end
@@ -381,7 +360,6 @@ function collectCandidates(sourceFile, bindings, functionsToAlias, classesToAlia
             returnValue.push(createCandidate('string', 'string:' + candidate.text, initializer, candidate.occurrences));
         }
     }
-    // Build function candidates: iterate functionsToAlias, deduplicate by root
     const processedFunctionRoots = new Set();
     const cL3 = functionsToAlias.length;
     for (let iL3 = 0; iL3 < cL3; iL3++) {
@@ -422,12 +400,6 @@ function createCandidate(kind, key, initializer, occurrences) {
         priorityLength: initializer.length
     };
 }
-/**
- * Determines whether a string literal is in a position where aliasing would
- * be unsafe: directives, import/export specifiers, dynamic-import arguments,
- * import attributes, element-access keys, binding-element property names, and
- * declaration names (property names, methods, class members, etc.).
- */
 function isUnsafeStringLiteral(node, parent) {
     let returnValue = false;
     if (parent) {
@@ -452,8 +424,6 @@ function isUnsafeStringLiteral(node, parent) {
         else if ((ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) && (parent.name === node || parent.propertyName === node)) {
             returnValue = true;
         }
-        // Folded isUnsafeDeclarationName checks — when the string literal is
-        // used as a declaration name (property, method, class member, etc.)
         else if (ts.isPropertyAssignment(parent)
             || ts.isMethodDeclaration(parent)
             || ts.isPropertyDeclaration(parent)
@@ -480,16 +450,10 @@ function quoteString(value) {
     }
     return returnValue;
 }
-/**
- * Generates alias names (a, b, …, z, aa, ab, …) skipping any identifier
- * already present in the source or in the reserved-word set. The alias-from-
- * index encoding is inlined from the former aliasFromIndex helper.
- */
 function generateAliases(count, identifiers) {
     const returnValue = [];
     let index = 0;
     while (returnValue.length < count) {
-        // Inline aliasFromIndex
         let value = index;
         let alias = '';
         do {
@@ -504,12 +468,6 @@ function generateAliases(count, identifiers) {
     }
     return returnValue;
 }
-/**
- * Dynamic-programming selection of candidates that maximise net length saving
- * under a fixed declaration cost. Candidate-value arithmetic is inlined from
- * the former getCandidateValue helper. Returns the selected candidates paired
- * with their assigned aliases, ordered by alias index.
- */
 function selectCandidates(candidates, aliases, fixedDeclarationCost) {
     const count = candidates.length;
     const decisions = new Array(count + 1);
@@ -528,8 +486,6 @@ function selectCandidates(candidates, aliases, fixedDeclarationCost) {
         for (let selectedCount = 1; selectedCount <= maximumSelected; selectedCount++) {
             const skippedValue = previous[selectedCount];
             const alias = aliases[selectedCount - 1];
-            // Inline getCandidateValue:
-            // value = replacedLength - initializer.length - 2 - (count + 1) * alias.length
             const candidateValue = candidate.replacedLength
                 - candidate.initializer.length
                 - config.perCandidateDeclarationOverhead
@@ -599,17 +555,12 @@ function applyCandidates(source, selected, insertion) {
             + replacement.text
             + returnValue.slice(replacement.end);
     }
-    const declaration = insertion.prefix + 'const ' + declarationParts.join(',') + ';\n';
+    const declaration = insertion.prefix + 'const ' + declarationParts.join(',') + ';';
     returnValue = returnValue.slice(0, insertion.point)
         + declaration
         + returnValue.slice(insertion.point);
     return returnValue;
 }
-/**
- * Finds the point in source where alias declarations should be inserted:
- * after a leading shebang line (if present), after any leading directive
- * prologue strings, and after any leading import declarations.
- */
 function findInsertion(source, sourceFile) {
     let shebangEnd = 0;
     if (source.startsWith('#!')) {
