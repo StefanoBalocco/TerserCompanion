@@ -232,7 +232,7 @@ test( 'aliases skip existing identifiers and reserved words', ( t: ExecutionCont
 
 	t.true( result.length < source.length );
 
-	const aliasRegex: RegExp = /(?:\bconst\s+|,\s*)([a-z]+)=/g;
+	const aliasRegex: RegExp = /(?:\bconst\s+|,\s*)([a-zA-Z]+)=/g;
 	let aliasMatch: Nullable<RegExpExecArray> = aliasRegex.exec( result );
 
 	while( aliasMatch ) {
@@ -509,4 +509,90 @@ test( 'bare unterminated shebang returns unchanged', ( t: ExecutionContext ) => 
 	const result: string = TerserCompanion( source );
 
 	t.is( result, source );
+} );
+
+// ── Contract 21: bijective base-52 alias sequence (a..z, A..Z, aa..aA) ───────
+
+test( 'bijective base-52 aliases a..z, A..Z, aa, ab, …, aA', ( t: ExecutionContext ) => {
+	const candidateCount: number = 79;
+	const lines: string[] = [];
+
+	for( let iL1: number = 0; iL1 < candidateCount; iL1++ ) {
+		const index: string = iL1.toString().padStart( 3, '0' );
+		const longString: string = 'base52_candidate_' + index + '_' + 'x'.repeat( 24 );
+		lines.push( 'const holder' + index + 'Left = "' + longString + '";' );
+		lines.push( 'const holder' + index + 'Right = "' + longString + '";' );
+	}
+
+	const source: string = lines.join( '\n' ) + '\n';
+	const result: string = TerserCompanion( source );
+
+	// Extract aliases from the const declaration
+	const constEnd: number = result.indexOf( ';' );
+	const declaration: string = result.slice( 0, constEnd );
+	const aliasesDeclared: string[] = declaration.replace( 'const ', '' ).split( ',' ).map( ( part: string ) => part.split( '=' )[ 0 ] );
+
+	t.is( aliasesDeclared.length, candidateCount, 'all ' + candidateCount + ' candidates aliased' );
+
+	// Aliases 0–25: a through z
+	const lowercaseExpected: string = 'abcdefghijklmnopqrstuvwxyz';
+	for( let iL1: number = 0; iL1 < 26; iL1++ ) {
+		t.is( aliasesDeclared[ iL1 ], lowercaseExpected[ iL1 ], 'alias ' + iL1 + ' is ' + lowercaseExpected[ iL1 ] );
+	}
+
+	// Aliases 26–51: A through Z
+	const uppercaseExpected: string = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+	for( let iL1: number = 26; iL1 < 52; iL1++ ) {
+		t.is( aliasesDeclared[ iL1 ], uppercaseExpected[ iL1 - 26 ], 'alias ' + iL1 + ' is ' + uppercaseExpected[ iL1 - 26 ] );
+	}
+
+	// Alias 52: aa
+	t.is( aliasesDeclared[ 52 ], 'aa', 'alias 52 is aa' );
+
+	// Alias 78: aA (first two-char mixed-case alias in bijective base-52)
+	t.is( aliasesDeclared[ 78 ], 'aA', 'alias 78 is aA' );
+
+	t.true( result.length < source.length, 'output shorter than input' );
+	assertValidOutput( t, result );
+	t.is( TerserCompanion( source ), result, 'deterministic output' );
+} );
+
+// ── Contract 22: uppercase collision with existing A ──────────────────────────
+
+test( 'uppercase alias collision with existing A skips to B', ( t: ExecutionContext ) => {
+	const preamble: string = 'var A = 0;\n';
+	const candidateCount: number = 27;
+	const lines: string[] = [];
+
+	for( let iL1: number = 0; iL1 < candidateCount; iL1++ ) {
+		const index: string = iL1.toString().padStart( 2, '0' );
+		const longString: string = 'uppercase_collision_candidate_' + index + '_' + 'x'.repeat( 24 );
+		lines.push( 'const holder' + index + 'Left = "' + longString + '";' );
+		lines.push( 'const holder' + index + 'Right = "' + longString + '";' );
+	}
+
+	const source: string = preamble + lines.join( '\n' ) + '\n';
+	const result: string = TerserCompanion( source );
+
+	// Extract aliases from the const declaration
+	const constEnd: number = result.indexOf( ';' );
+	const declaration: string = result.slice( 0, constEnd );
+	const aliasesDeclared: string[] = declaration.replace( 'const ', '' ).split( ',' ).map( ( part: string ) => part.split( '=' )[ 0 ] );
+
+	t.is( aliasesDeclared.length, candidateCount, 'all ' + candidateCount + ' candidates aliased' );
+
+	// Aliases 0–25: a through z
+	const lowercaseExpected: string = 'abcdefghijklmnopqrstuvwxyz';
+	for( let iL1: number = 0; iL1 < 26; iL1++ ) {
+		t.is( aliasesDeclared[ iL1 ], lowercaseExpected[ iL1 ], 'alias ' + iL1 + ' is ' + lowercaseExpected[ iL1 ] );
+	}
+
+	// Alias 26: B (A was skipped due to collision in source)
+	t.is( aliasesDeclared[ 26 ], 'B', 'alias 26 is B (A was skipped)' );
+
+	// No 'A' in the alias list
+	t.false( aliasesDeclared.includes( 'A' ), 'alias list must not contain A' );
+
+	t.true( result.length < source.length, 'output shorter than input' );
+	assertValidOutput( t, result );
 } );

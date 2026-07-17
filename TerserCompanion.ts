@@ -31,6 +31,9 @@ const defaultClassesToAlias: readonly string[] = [
 	'Promise'
 ] as const;
 
+const aliasAlphabet: string = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const aliasBase: number = aliasAlphabet.length;
+
 const reservedIdentifiers: ReadonlySet<string> = new Set<string>( [
 	'arguments',
 	'await',
@@ -88,15 +91,11 @@ const config: {
 	minimumAliasOccurrences: number;
 	perCandidateDeclarationOverhead: number;
 	fixedAliasDeclarationOverhead: number;
-	aliasAlphabetSize: number;
-	aliasFirstCharacterCode: number;
 } = {
 	sourceFileName: 'source.js',
 	minimumAliasOccurrences: 2,
 	perCandidateDeclarationOverhead: 2,
-	fixedAliasDeclarationOverhead: 7,
-	aliasAlphabetSize: 26,
-	aliasFirstCharacterCode: 97
+	fixedAliasDeclarationOverhead: 7
 };
 
 export interface TerserCompanionOptions {
@@ -147,8 +146,9 @@ interface Insertion {
 
 /**
  * Moves profitable repeated string literals and whitelisted call targets into
- * one top-level const declaration. Alias names are assigned as a..z, aa..zz,
- * and so on. Existing identifiers and reserved words are skipped.
+ * one top-level const declaration. Aliases use bijective base-52 order:
+ * a..z, A..Z, aa, ab, …, aZ, ba, …, ZZ, aaa, … Existing identifiers and
+ * reserved words are skipped.
  */
 export default function TerserCompanion(
 	source: string,
@@ -695,25 +695,24 @@ function quoteString( value: string ): string {
 }
 
 /**
- * Generates alias names (a, b, …, z, aa, ab, …) skipping any identifier
- * already present in the source or in the reserved-word set. The alias-from-
- * index encoding is inlined from the former aliasFromIndex helper.
+ * Generates alias names in bijective base-52 order over
+ * a..zA..Z (a, b, …, z, A, B, …, Z, aa, ab, …, aZ, ba, …, ZZ, aaa, …),
+ * skipping any identifier already present in the source or in the reserved-word
+ * set.
  */
 function generateAliases( count: number, identifiers: ReadonlySet<string> ): string[] {
 	const returnValue: string[] = [];
 	let index: number = 0;
 
 	while( returnValue.length < count ) {
-		// Inline aliasFromIndex
-		let value: number = index;
+		let value: number = index + 1;
 		let alias: string = '';
 
 		do {
-			const digit: number = value % config.aliasAlphabetSize;
-
-			alias = String.fromCharCode( config.aliasFirstCharacterCode + digit ) + alias;
-			value = Math.floor( value / config.aliasAlphabetSize ) - 1;
-		} while( 0 <= value );
+			value--;
+			alias = aliasAlphabet.charAt( value % aliasBase ) + alias;
+			value = Math.floor( value / aliasBase );
+		} while( 0 < value );
 
 		if( !identifiers.has( alias ) && !reservedIdentifiers.has( alias ) ) {
 			returnValue.push( alias );

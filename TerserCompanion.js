@@ -26,6 +26,8 @@ const defaultClassesToAlias = [
     'Array',
     'Promise'
 ];
+const aliasAlphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const aliasBase = aliasAlphabet.length;
 const reservedIdentifiers = new Set([
     'arguments',
     'await',
@@ -81,9 +83,7 @@ const config = {
     sourceFileName: 'source.js',
     minimumAliasOccurrences: 2,
     perCandidateDeclarationOverhead: 2,
-    fixedAliasDeclarationOverhead: 7,
-    aliasAlphabetSize: 26,
-    aliasFirstCharacterCode: 97
+    fixedAliasDeclarationOverhead: 7
 };
 export default function TerserCompanion(source, options = {}) {
     const functionsToAliasRaw = options.functionsToAlias ?? defaultFunctionsToAlias;
@@ -454,13 +454,13 @@ function generateAliases(count, identifiers) {
     const returnValue = [];
     let index = 0;
     while (returnValue.length < count) {
-        let value = index;
+        let value = index + 1;
         let alias = '';
         do {
-            const digit = value % config.aliasAlphabetSize;
-            alias = String.fromCharCode(config.aliasFirstCharacterCode + digit) + alias;
-            value = Math.floor(value / config.aliasAlphabetSize) - 1;
-        } while (0 <= value);
+            value--;
+            alias = aliasAlphabet.charAt(value % aliasBase) + alias;
+            value = Math.floor(value / aliasBase);
+        } while (0 < value);
         if (!identifiers.has(alias) && !reservedIdentifiers.has(alias)) {
             returnValue.push(alias);
         }
