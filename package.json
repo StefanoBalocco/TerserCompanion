@@ -1,7 +1,7 @@
 {
 	"name": "@stefanobalocco/tersercompanion",
 	"description": "Optimizes JavaScript source by aliasing repeated expressions.",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"type": "module",
 	"main": "TerserCompanion.js",
 	"types": "TerserCompanion.d.ts",

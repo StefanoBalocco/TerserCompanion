@@ -95,7 +95,13 @@ const config: {
 	sourceFileName: 'source.js',
 	minimumAliasOccurrences: 2,
 	perCandidateDeclarationOverhead: 2,
-	fixedAliasDeclarationOverhead: 7
+	fixedAliasDeclarationOverhead: 6 // fixed `const ` is 6; each candidate
+	                                 // overhead 2 accounts for `=` and one
+	                                 // comma; the final declaration semicolon
+	                                 // replaces the nonexistent comma after
+	                                 // the final candidate, so these cancel
+	                                 // and fixed cost remains 6; insertion
+	                                 // prefix length is added separately
 };
 
 export interface TerserCompanionOptions {
@@ -106,20 +112,19 @@ export interface TerserCompanionOptions {
 	classesToAlias?: readonly string[];
 }
 
-type CandidateKind = 'string' | 'function' | 'class';
-
 interface Occurrence {
 	start: number;
 	end: number;
+	needsLeadingSeparator: boolean;
+	needsTrailingSeparator: boolean;
 }
 
 interface Candidate {
-	kind: CandidateKind;
-	key: string;
 	initializer: string;
 	occurrences: Occurrence[];
 	count: number;
 	replacedLength: number;
+	separatorLength: number;
 	priorityLength: number;
 }
 
@@ -218,7 +223,8 @@ export default function TerserCompanion(
 		namespaceExportLength,
 		hasDecorator,
 		decoratorStart,
-		decoratorLength
+		decoratorLength,
+		hasUnsupportedStatement
 	}: {
 		identifiers: Set<string>;
 		bindings: Set<string>;
@@ -231,6 +237,7 @@ export default function TerserCompanion(
 		hasDecorator: boolean;
 		decoratorStart: number;
 		decoratorLength: number;
+		hasUnsupportedStatement: boolean;
 	} = collectIdentifiersAndBindings( sourceFile );
 
 	if( hasJsx ) {
@@ -270,7 +277,7 @@ export default function TerserCompanion(
 
 	if( 0 < diagnostics.length ) {
 		throw new Error( ts.formatDiagnostics( diagnostics, host ) );
-	} else {
+	} else if( !hasUnsupportedStatement ) {
 		const candidates: Candidate[] = collectCandidates(
 			sourceFile,
 			bindings,
@@ -278,7 +285,6 @@ export default function TerserCompanion(
 			classesToAlias
 		);
 
-		// Inline compareCandidates
 		candidates.sort( ( left: Candidate, right: Candidate ): number => {
 			let comparison: number = right.count - left.count;
 
@@ -287,9 +293,6 @@ export default function TerserCompanion(
 			}
 			if( 0 === comparison ) {
 				comparison = right.replacedLength - left.replacedLength;
-			}
-			if( 0 === comparison ) {
-				comparison = left.key.localeCompare( right.key );
 			}
 
 			return comparison;
@@ -330,6 +333,7 @@ function collectIdentifiersAndBindings( sourceFile: ts.SourceFile ): {
 	hasDecorator: boolean;
 	decoratorStart: number;
 	decoratorLength: number;
+	hasUnsupportedStatement: boolean;
 } {
 	const identifiers: Set<string> = new Set<string>();
 	const bindings: Set<string> = new Set<string>();
@@ -342,6 +346,7 @@ function collectIdentifiersAndBindings( sourceFile: ts.SourceFile ): {
 	let hasDecorator: boolean = false;
 	let decoratorStart: number = 0;
 	let decoratorLength: number = 0;
+	let hasUnsupportedStatement: boolean = false;
 
 	function addBindingName( name: ts.BindingName ): void {
 		if( ts.isIdentifier( name ) ) {
@@ -404,6 +409,22 @@ function collectIdentifiersAndBindings( sourceFile: ts.SourceFile ): {
 			}
 		}
 
+		if( ts.isWithStatement( node ) ) {
+			hasUnsupportedStatement = true;
+		}
+
+		if( ts.isCallExpression( node ) && !node.questionDotToken ) {
+			let callee: ts.Expression = node.expression;
+
+			while( ts.isParenthesizedExpression( callee ) ) {
+				callee = callee.expression;
+			}
+
+			if( ts.isIdentifier( callee ) && 'eval' === callee.text ) {
+				hasUnsupportedStatement = true;
+			}
+		}
+
 		ts.forEachChild( node, visit );
 	}
 
@@ -420,7 +441,8 @@ function collectIdentifiersAndBindings( sourceFile: ts.SourceFile ): {
 		namespaceExportLength,
 		hasDecorator,
 		decoratorStart,
-		decoratorLength
+		decoratorLength,
+		hasUnsupportedStatement
 	};
 }
 
@@ -489,10 +511,7 @@ function collectCandidates(
 				strings.set( node.text, candidate );
 			}
 
-			candidate.occurrences.push( {
-				start: node.getStart( sourceFile ),
-				end: node.end
-			} );
+			candidate.occurrences.push( createOccurrence( node, sourceFile ) );
 		}
 
 		if( ts.isCallExpression( node ) && !node.questionDotToken ) {
@@ -503,10 +522,7 @@ function collectCandidates(
 
 				if( functionSet.has( path ) && !blockedRoots.has( path ) ) {
 					// Bare function identifier: root = path
-					addOccurrence( functionOccurrences, path, {
-						start: callee.getStart( sourceFile ),
-						end: callee.end
-					} );
+					addOccurrence( functionOccurrences, path, createOccurrence( callee, sourceFile ) );
 				}
 			} else if( ts.isPropertyAccessExpression( callee ) && !callee.questionDotToken ) {
 				// Walk the property access chain to find the leftmost
@@ -526,18 +542,9 @@ function collectCandidates(
 
 					if( !blockedRoots.has( root ) ) {
 						if( functionSet.has( fullPath ) ) {
-							// Root-based aliasing: record root identifier span,
-							// grouping all whitelisted root.method calls under
-							// the same root key.
-							addOccurrence( functionOccurrences, root, {
-								start: currentExpr.getStart( sourceFile ),
-								end: currentExpr.end
-							} );
+							addOccurrence( functionOccurrences, fullPath, createOccurrence( callee, sourceFile ) );
 						} else if( classSet.has( root ) ) {
-							addOccurrence( classOccurrences, root, {
-								start: currentExpr.getStart( sourceFile ),
-								end: currentExpr.end
-							} );
+							addOccurrence( classOccurrences, root, createOccurrence( currentExpr, sourceFile ) );
 						}
 					}
 				}
@@ -553,37 +560,19 @@ function collectCandidates(
 		if( config.minimumAliasOccurrences <= candidate.occurrences.length ) {
 			const initializer: string = quoteString( candidate.text );
 
-			returnValue.push( createCandidate(
-				'string',
-				'string:' + candidate.text,
-				initializer,
-				candidate.occurrences
-			) );
+			returnValue.push( createCandidate( initializer, candidate.occurrences ) );
 		}
 	}
 
-	// Build function candidates: iterate functionsToAlias, deduplicate by root
-	const processedFunctionRoots: Set<string> = new Set<string>();
+	// Build function candidates: iterate exact configured paths
 	const cL3: number = functionsToAlias.length;
 
 	for( let iL3: number = 0; iL3 < cL3; iL3++ ) {
 		const path: string = functionsToAlias[ iL3 ];
-		const dotIndex: number = path.indexOf( '.' );
-		const root: string = ( 0 <= dotIndex ) ? path.substring( 0, dotIndex ) : path;
+		const occurrences: Undefinedable<Occurrence[]> = functionOccurrences.get( path );
 
-		if( !processedFunctionRoots.has( root ) ) {
-			processedFunctionRoots.add( root );
-
-			const occurrences: Undefinedable<Occurrence[]> = functionOccurrences.get( root );
-
-			if( occurrences && config.minimumAliasOccurrences <= occurrences.length ) {
-				returnValue.push( createCandidate(
-					'function',
-					'function:' + root,
-					root,
-					occurrences
-				) );
-			}
+		if( occurrences && config.minimumAliasOccurrences <= occurrences.length ) {
+			returnValue.push( createCandidate( path, occurrences ) );
 		}
 	}
 
@@ -594,38 +583,71 @@ function collectCandidates(
 		const occurrences: Undefinedable<Occurrence[]> = classOccurrences.get( root );
 
 		if( occurrences && config.minimumAliasOccurrences <= occurrences.length ) {
-			returnValue.push( createCandidate(
-				'class',
-				'class:' + root,
-				root,
-				occurrences
-			) );
+			returnValue.push( createCandidate( root, occurrences ) );
 		}
 	}
 
 	return returnValue;
 }
 
+/**
+ * Creates an Occurrence from an AST node, computing leading/trailing token
+ * boundary requirements from the original source text.
+ */
+function createOccurrence( node: ts.Node, sourceFile: ts.SourceFile ): Occurrence {
+	const start: number = node.getStart( sourceFile );
+	const end: number = node.end;
+	const sourceText: string = sourceFile.text;
+	let needsLeadingSeparator: boolean = false;
+	let needsTrailingSeparator: boolean = false;
+
+	if( 0 < start ) {
+		if( ts.isIdentifierPart( sourceText.charCodeAt( start - 1 ), ts.ScriptTarget.Latest ) ) {
+			needsLeadingSeparator = true;
+		}
+	}
+
+	if( end < sourceText.length ) {
+		if( ts.isIdentifierPart( sourceText.charCodeAt( end ), ts.ScriptTarget.Latest ) ) {
+			needsTrailingSeparator = true;
+		}
+	}
+
+	const returnValue: Occurrence = {
+		start,
+		end,
+		needsLeadingSeparator,
+		needsTrailingSeparator
+	};
+
+	return returnValue;
+}
+
 function createCandidate(
-	kind: CandidateKind,
-	key: string,
 	initializer: string,
 	occurrences: Occurrence[]
 ): Candidate {
 	let replacedLength: number = 0;
+	let separatorLength: number = 0;
 	const cL1: number = occurrences.length;
 
 	for( let iL1: number = 0; iL1 < cL1; iL1++ ) {
-		replacedLength += occurrences[ iL1 ].end - occurrences[ iL1 ].start;
+		const occurrence: Occurrence = occurrences[ iL1 ];
+		replacedLength += occurrence.end - occurrence.start;
+		if( occurrence.needsLeadingSeparator ) {
+			separatorLength++;
+		}
+		if( occurrence.needsTrailingSeparator ) {
+			separatorLength++;
+		}
 	}
 
 	return {
-		kind,
-		key,
 		initializer,
 		occurrences,
 		count: occurrences.length,
 		replacedLength,
+		separatorLength,
 		priorityLength: initializer.length
 	};
 }
@@ -649,8 +671,16 @@ function isUnsafeStringLiteral(
 			returnValue = true;
 		} else if( ( ts.isImportDeclaration( parent ) || ts.isExportDeclaration( parent ) ) && parent.moduleSpecifier === node ) {
 			returnValue = true;
+		} else if( ts.isDeleteExpression( parent ) && parent.expression === node ) {
+			returnValue = true;
 		} else if( ts.isCallExpression( parent ) && ts.SyntaxKind.ImportKeyword === parent.expression.kind && parent.arguments[ 0 ] === node ) {
 			returnValue = true;
+		} else if( ts.isCallExpression( parent ) && !parent.questionDotToken ) {
+			if( ts.isIdentifier( parent.expression ) && 'require' === parent.expression.text && 0 < parent.arguments.length && parent.arguments[ 0 ] === node ) {
+				returnValue = true;
+			} else if( ts.isPropertyAccessExpression( parent.expression ) && !parent.expression.questionDotToken && ts.isIdentifier( parent.expression.expression ) && 'require' === parent.expression.expression.text && 'resolve' === parent.expression.name.text && 0 < parent.arguments.length && parent.arguments[ 0 ] === node ) {
+				returnValue = true;
+			}
 		} else if( ts.isImportAttribute( parent ) && ( parent.name === node || parent.value === node ) ) {
 			returnValue = true;
 		} else if( ts.isBindingElement( parent ) && parent.propertyName === node ) {
@@ -757,11 +787,13 @@ function selectCandidates(
 			const skippedValue: number = previous[ selectedCount ];
 			const alias: string = aliases[ selectedCount - 1 ];
 			// Inline getCandidateValue:
-			// value = replacedLength - initializer.length - 2 - (count + 1) * alias.length
+			// value = replacedLength - initializer.length - perCandidateDeclarationOverhead
+			//         - (count + 1) * alias.length - separatorLength
 			const candidateValue: number = candidate.replacedLength
 			                               - candidate.initializer.length
 			                               - config.perCandidateDeclarationOverhead
-			                               - ( candidate.count + 1 ) * alias.length;
+			                               - ( candidate.count + 1 ) * alias.length
+			                               - candidate.separatorLength;
 			const takenValue: number = previous[ selectedCount - 1 ] + candidateValue;
 
 			current[ selectedCount ] = skippedValue;
@@ -820,7 +852,7 @@ function applyCandidates(
 	selected: SelectedCandidate[],
 	insertion: Insertion
 ): string {
-	const replacements: Replacement[] = [];
+	const events: Replacement[] = [];
 	const declarationParts: string[] = [];
 
 	for( const item of selected ) {
@@ -830,36 +862,56 @@ function applyCandidates(
 
 		for( let iL1: number = 0; iL1 < cL1; iL1++ ) {
 			const occurrence: Occurrence = item.candidate.occurrences[ iL1 ];
+			let text: string = item.alias;
 
-			replacements.push( {
+			if( occurrence.needsLeadingSeparator ) {
+				text = ' ' + text;
+			}
+			if( occurrence.needsTrailingSeparator ) {
+				text = text + ' ';
+			}
+
+			events.push( {
 				start: occurrence.start,
 				end: occurrence.end,
-				text: item.alias
+				text: text
 			} );
 		}
 	}
 
-	replacements.sort( ( left: Replacement, right: Replacement ) => right.start - left.start );
-
-	let returnValue: string = source;
-
-	const cL2: number = replacements.length;
-
-	for( let iL2: number = 0; iL2 < cL2; iL2++ ) {
-		const replacement: Replacement = replacements[ iL2 ];
-
-		returnValue = returnValue.slice( 0, replacement.start )
-		              + replacement.text
-		              + returnValue.slice( replacement.end );
-	}
-
 	const declaration: string = insertion.prefix + 'const ' + declarationParts.join( ',' ) + ';';
 
-	returnValue = returnValue.slice( 0, insertion.point )
-	              + declaration
-	              + returnValue.slice( insertion.point );
+	events.push( {
+		start: insertion.point,
+		end: insertion.point,
+		text: declaration
+	} );
 
-	return returnValue;
+	events.sort( ( left: Replacement, right: Replacement ): number => {
+		const comparison: number = left.start - right.start;
+
+		if( 0 === comparison ) {
+			return left.end - right.end;
+		}
+
+		return comparison;
+	} );
+
+	const segments: string[] = [];
+	let cursor: number = 0;
+	const cL2: number = events.length;
+
+	for( let iL2: number = 0; iL2 < cL2; iL2++ ) {
+		const event: Replacement = events[ iL2 ];
+
+		segments.push( source.slice( cursor, event.start ) );
+		segments.push( event.text );
+		cursor = event.end;
+	}
+
+	segments.push( source.slice( cursor ) );
+
+	return segments.join( '' );
 }
 
 /**
