@@ -5,8 +5,9 @@
     "target": "esnext",
     "module": "esnext",
     "moduleResolution": "bundler",
-    "declaration": true,
+    "declaration": false,
     "removeComments": true,
+    "sourceMap": false,
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
@@ -16,8 +17,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "allowSyntheticDefaultImports": true,
-    "sourceMap": true
+    "allowSyntheticDefaultImports": true
   },
-  "files": [ "src/TerserCompanion.ts" ]
+  "files": [ "src/TerserCompanion.test.ts" ]
 }

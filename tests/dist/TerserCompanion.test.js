@@ -1,6 +1,6 @@
 import test from 'ava';
 import * as ts from 'typescript';
-import TerserCompanion from './TerserCompanion.js';
+import TerserCompanion from '../../dist/TerserCompanion.js';
 const reservedIdentifiers = new Set([
     'arguments',
     'await',
@@ -52,15 +52,11 @@ const reservedIdentifiers = new Set([
     'with',
     'yield'
 ]);
-/**
- * Parses a string as JavaScript and asserts it has no parse diagnostics.
- */
 function assertValidOutput(t, output) {
     const parsed = ts.createSourceFile('verify.js', output, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     const diagnostics = parsed.parseDiagnostics;
     t.is(diagnostics.length, 0, 'output must be syntactically valid JavaScript');
 }
-// ── Contract 1: default export signature ─────────────────────────────────────
 test('default export accepts options and returns a string', (t) => {
     const source = 'var x = 1;';
     const result = TerserCompanion(source);
@@ -70,7 +66,6 @@ test('default export accepts options and returns a string', (t) => {
     const resultWithEmptyClasses = TerserCompanion(source, { classesToAlias: [] });
     t.is(typeof resultWithEmptyClasses, 'string');
 });
-// ── Contract 2: empty / non-profitable source unchanged ──────────────────────
 test('empty source returns unchanged', (t) => {
     const source = '';
     t.is(TerserCompanion(source), source);
@@ -83,7 +78,6 @@ test('short repeated string below alias threshold unchanged', (t) => {
     const source = 'var a = "x";\nvar b = "x";\n';
     t.is(TerserCompanion(source), source);
 });
-// ── Contract 3: repeated long string literal ──────────────────────────────────
 test('repeated long string literal produces shorter output and alias declaration', (t) => {
     const longString = 'a very long string literal that is profitable to alias';
     const source = 'var a = "' + longString + '";\nvar b = "' + longString + '";\n';
@@ -94,7 +88,6 @@ test('repeated long string literal produces shorter output and alias declaration
     t.is(countInResult, 1);
     assertValidOutput(t, result);
 });
-// ── Contract 4: function aliasing ────────────────────────────────────────────
 test('repeated default function call is aliased', (t) => {
     const source = 'var v0 = Math.floor( 1.5 );\nvar v1 = Math.floor( 2.5 );\nvar v2 = Math.floor( 3.5 );\nvar v3 = Math.floor( 4.5 );\nvar v4 = Math.floor( 5.5 );\nvar v5 = Math.floor( 6.5 );\n';
     const result = TerserCompanion(source);
@@ -113,7 +106,6 @@ test('custom functionsToAlias is honored', (t) => {
     t.regex(result, /\bconst\s+[a-z]+=Custom\.call\b/);
     assertValidOutput(t, result);
 });
-// ── Contract 5: class-root aliasing ──────────────────────────────────────────
 test('repeated default class root is aliased', (t) => {
     const source = 'var a = Array.isArray( x );\nvar b = Array.isArray( y );\nvar c = Array.isArray( z );\nvar d = Array.isArray( w );\n';
     const result = TerserCompanion(source);
@@ -132,14 +124,12 @@ test('custom classesToAlias is honored', (t) => {
     t.true(customCount <= 1);
     assertValidOutput(t, result);
 });
-// ── Contract 6: local binding shadowing blocks aliasing ──────────────────────
 test('local binding shadowing Math blocks aliasing', (t) => {
     const source = 'const Math = {};\nvar a = Math.floor( 1.5 );\nvar b = Math.floor( 2.5 );\n';
     const result = TerserCompanion(source);
     const floorCount = (result.match(/Math\.floor/g) || []).length;
     t.is(floorCount, 2);
 });
-// ── Contract 7: unsafe string contexts remain literal ────────────────────────
 test('repeated strings in unsafe contexts remain unchanged', (t) => {
     const directiveSource = '"use strict";\n"use strict";\n';
     t.is(TerserCompanion(directiveSource), directiveSource);
@@ -150,7 +140,6 @@ test('repeated strings in unsafe contexts remain unchanged', (t) => {
     const propertySource = 'var obj = { "key": 1, "key": 2 };\n';
     t.is(TerserCompanion(propertySource), propertySource);
 });
-// ── Contract 8: insertion location ────────────────────────────────────────────
 test('insertion after shebang, directive, and import', (t) => {
     const shebangSource = '#!/usr/bin/env node\nvar a = "repeated long string for shebang test";\nvar b = "repeated long string for shebang test";\n';
     const shebangResult = TerserCompanion(shebangSource);
@@ -171,7 +160,6 @@ test('insertion after directive without semicolon', (t) => {
     t.true(result.startsWith('"use strict";\nconst '));
     t.true(result.length < source.length);
 });
-// ── Contract 9: alias name collision avoidance ───────────────────────────────
 test('aliases skip existing identifiers and reserved words', (t) => {
     const source = 'var a = 0;\nvar bVal = Math.floor( 1.5 );\nvar cVal = Math.floor( 2.5 );\nvar dVal = Math.floor( 3.5 );\nvar eVal = Math.floor( 4.5 );\nvar fVal = Math.floor( 5.5 );\nvar s1 = "some long profitable string for alias test";\nvar s2 = "some long profitable string for alias test";\n';
     const result = TerserCompanion(source);
@@ -186,13 +174,11 @@ test('aliases skip existing identifiers and reserved words', (t) => {
     }
     assertValidOutput(t, result);
 });
-// ── Contract 10: malformed JavaScript throws ──────────────────────────────────
 test('malformed JavaScript throws', (t) => {
     t.throws(() => {
         TerserCompanion('var x = ;\n');
     }, { instanceOf: Error });
 });
-// ── Contract 11: TypeScript-only syntax and JSX rejection ─────────────────────
 const invalidSources = [
     { source: 'const value: number = 1;\n', description: 'type annotation' },
     { source: 'function value( input: number ): number { return input; }\n', description: 'function with typed parameters and return' },
@@ -217,7 +203,6 @@ invalidSources.forEach(({ source, description }) => {
         t.truthy(error.message.includes('error TS'), 'error message must contain error TS');
     });
 });
-// ── Contract 12: option normalization ─────────────────────────────────────────
 test('duplicate options deduplicated and empty arrays disable defaults', (t) => {
     const dedupSource = 'var a = Custom.call( 1 );\nvar b = Custom.call( 2 );\nvar c = Custom.call( 3 );\n';
     const resultDeduped = TerserCompanion(dedupSource, {
@@ -228,7 +213,6 @@ test('duplicate options deduplicated and empty arrays disable defaults', (t) => 
     });
     t.is(resultDeduped, resultSingle);
     assertValidOutput(t, resultDeduped);
-    // Empty arrays disable defaults: Math.floor and Array should remain as-is.
     const emptySource = 'var a = Math.floor( 1.5 );\nvar b = Math.floor( 2.5 );\nvar c = Math.floor( 3.5 );\nvar d = Array.isArray( x );\nvar e = Array.isArray( y );\nvar f = Array.isArray( z );\nvar g = Array.isArray( w );\n';
     const emptyResult = TerserCompanion(emptySource, {
         functionsToAlias: [],
@@ -241,7 +225,6 @@ test('duplicate options deduplicated and empty arrays disable defaults', (t) => 
     t.is(emptyResult, emptySource, 'without profitable strings, output must equal input');
     assertValidOutput(t, emptyResult);
 });
-// ── Contract 13: determinism and never-longer ─────────────────────────────────
 test('identical input produces identical output', (t) => {
     const source = 'var a = Math.floor( 1.5 );\nvar b = Math.floor( 2.5 );\nvar c = Math.floor( 3.5 );\n';
     const result1 = TerserCompanion(source);
@@ -262,19 +245,7 @@ test('output is never longer than input', (t) => {
         t.true(result.length <= source.length, 'output length (' + result.length + ') must not exceed input length (' + source.length + ')');
     });
 });
-// ── Contract 14: all candidate-sort tiebreak levels ────────────────────────────
 test('sort comparator exercises priorityLength, replacedLength, and stable encounter order', (t) => {
-    // Six string candidates with equal occurrence counts (2 each):
-    //   "aaaa_really_long_profitable_repeated_literal" (priorityLength=43, replacedLength=86)
-    //   "bbbb_really_long_profitable_repeated_literal" (priorityLength=43, replacedLength=86)
-    //   "cccc_longer_profitable_repeated_demo"         (priorityLength=37, replacedLength=74)
-    //   "dddd_longer_profitable_repeated_demo"         (priorityLength=37, replacedLength=74)
-    //   "eeee_short_profitable_repeated"               (priorityLength=31, replacedLength=62)
-    //   "ffff_short_profitable_repeated"               (priorityLength=31, replacedLength=62)
-    // Sort order (all count=2):
-    //   aaaa/bbbb (priority=43) → equal → replacedLength equal (86) → stable sort retains encounter order: aaaa before bbbb
-    //   cccc/dddd (priority=37) → equal → replacedLength equal (74) → cccc before dddd
-    //   eeee/ffff (priority=31) → equal → replacedLength equal (62) → eeee before ffff
     const source = [
         'var a0 = "aaaa_really_long_profitable_repeated_literal";',
         'var a1 = "aaaa_really_long_profitable_repeated_literal";',
@@ -293,11 +264,9 @@ test('sort comparator exercises priorityLength, replacedLength, and stable encou
     const result2 = TerserCompanion(source);
     t.is(result1, result2, 'deterministic output for tiebreak candidates');
     t.true(result1.length < source.length, 'output strictly shorter');
-    // Extract the top-level alias declaration
     const constStart1 = result1.indexOf('const ');
     const declEnd1 = result1.indexOf(';\n', constStart1);
     const decl1 = result1.slice(constStart1, declEnd1);
-    // Assert each expected initializer occurs exactly once in the declaration
     const aaaaInDecl = (decl1.match(/"aaaa_really_long_profitable_repeated_literal"/g) || []).length;
     t.is(aaaaInDecl, 1, 'aaaa initializer appears exactly once in declaration');
     const bbbbInDecl = (decl1.match(/"bbbb_really_long_profitable_repeated_literal"/g) || []).length;
@@ -310,25 +279,21 @@ test('sort comparator exercises priorityLength, replacedLength, and stable encou
     t.is(eeeeInDecl, 1, 'eeee initializer appears exactly once in declaration');
     const ffffInDecl = (decl1.match(/"ffff_short_profitable_repeated"/g) || []).length;
     t.is(ffffInDecl, 1, 'ffff initializer appears exactly once in declaration');
-    // Assert each original literal appears exactly once in the full output (declaration only)
     const aaaaTotal = (result1.match(/"aaaa_really_long_profitable_repeated_literal"/g) || []).length;
     t.is(aaaaTotal, 1, 'aaaa literal appears exactly once in output');
     const ffffTotal = (result1.match(/"ffff_short_profitable_repeated"/g) || []).length;
     t.is(ffffTotal, 1, 'ffff literal appears exactly once in output');
-    // Assert declaration order follows encounter order
     t.true(decl1.indexOf('aaaa') < decl1.indexOf('bbbb'), 'aaaa initializer precedes bbbb initializer in declaration');
     t.true(decl1.indexOf('cccc') < decl1.indexOf('dddd'), 'cccc initializer precedes dddd initializer in declaration');
     t.true(decl1.indexOf('eeee') < decl1.indexOf('ffff'), 'eeee initializer precedes ffff initializer in declaration');
     assertValidOutput(t, result1);
 });
-// ── Contract 15: destructuring binding walker ──────────────────────────────────
 test('destructuring with omitted element and local Math blocks aliasing', (t) => {
     const source = 'const [ , Math ] = values;\nvar a = Math.floor( 1.5 );\nvar b = Math.floor( 2.5 );\nvar c = Math.floor( 3.5 );\nvar d = Math.floor( 4.5 );\nvar e = Math.floor( 5.5 );\nvar f = Math.floor( 6.5 );\n';
     const result = TerserCompanion(source);
     t.is(result, source, 'output unchanged when Math is shadowed via destructuring');
     assertValidOutput(t, result);
 });
-// ── Contract 16: bare identifier callee ───────────────────────────────────────
 test('bare RegExp identifier calls are aliased', (t) => {
     const source = 'var a0 = RegExp( "p1" );\nvar a1 = RegExp( "p2" );\nvar a2 = RegExp( "p3" );\nvar a3 = RegExp( "p4" );\nvar a4 = RegExp( "p5" );\nvar a5 = RegExp( "p6" );\n';
     const result = TerserCompanion(source);
@@ -337,7 +302,6 @@ test('bare RegExp identifier calls are aliased', (t) => {
     t.regex(result, /\bconst\s+[a-z]=RegExp\b/);
     assertValidOutput(t, result);
 });
-// ── Contract 17: unsafe valid-JS string contexts ─────────────────────────────
 test('element-access keys remain literal', (t) => {
     const longKey = 'a sufficiently long repeated string for element access key test';
     const source = 'var v = record[ "' + longKey + '" ];\nvar w = record[ "' + longKey + '" ];\n';
@@ -363,7 +327,6 @@ test('import string names remain literal', (t) => {
     const source = 'import { "' + longName + '" as value } from "pkg";\nimport { "' + longName + '" as other } from "pkg";\n';
     t.is(TerserCompanion(source), source);
 });
-// ── Contract 18: quote generation ─────────────────────────────────────────────
 test('low control character uses \\\\xHH form', (t) => {
     const controlChar = String.fromCharCode(0x01);
     const source = [
@@ -382,8 +345,6 @@ test('double-quoted string aliased with single quotes when shorter', (t) => {
     const source = 'var a = "a \\"test\\"";\nvar b = "a \\"test\\"";\nvar c = "a \\"test\\"";\n';
     const result = TerserCompanion(source);
     t.true(result.length < source.length);
-    // The declaration should use single quotes because the string contains
-    // double quotes but no single quotes, making single-quoted form shorter
     t.regex(result, /const\s+[a-z]='[^']+'/);
     assertValidOutput(t, result);
 });
@@ -391,19 +352,15 @@ test('single-quoted string aliased with double quotes when shorter', (t) => {
     const source = "var a = 'a \\'test\\'';\nvar b = 'a \\'test\\'';\nvar c = 'a \\'test\\'';\n";
     const result = TerserCompanion(source);
     t.true(result.length < source.length);
-    // The declaration should use double quotes because the string contains
-    // single quotes but no double quotes, making double-quoted form shorter
     t.regex(result, /const\s+[a-z]="[^"]+"/);
     assertValidOutput(t, result);
 });
-// ── Contract 19: missing triple-slash reference triggers getSourceFile false path ──
 test('missing triple-slash reference with profitable string succeeds', (t) => {
     const source = '/// <reference path="./missing.js" />\nvar first = "a repeated string long enough to alias";\nvar second = "a repeated string long enough to alias";\n';
     const result = TerserCompanion(source);
     t.true(result.length < source.length);
     assertValidOutput(t, result);
 });
-// ── Contract 20: shebang boundary cases ──────────────────────────────────────
 test('insertion after CRLF-terminated shebang', (t) => {
     const source = '#!/usr/bin/env node\r\nvar a = "profitable string for CRLF test";\nvar b = "profitable string for CRLF test";\n';
     const result = TerserCompanion(source);
@@ -416,7 +373,6 @@ test('bare unterminated shebang returns unchanged', (t) => {
     const result = TerserCompanion(source);
     t.is(result, source);
 });
-// ── Contract 21: bijective base-52 alias sequence (a..z, A..Z, aa..aA) ───────
 test('bijective base-52 aliases a..z, A..Z, aa, ab, …, aA', (t) => {
     const candidateCount = 79;
     const lines = [];
@@ -428,30 +384,24 @@ test('bijective base-52 aliases a..z, A..Z, aa, ab, …, aA', (t) => {
     }
     const source = lines.join('\n') + '\n';
     const result = TerserCompanion(source);
-    // Extract aliases from the const declaration
     const constEnd = result.indexOf(';');
     const declaration = result.slice(0, constEnd);
     const aliasesDeclared = declaration.replace('const ', '').split(',').map((part) => part.split('=')[0]);
     t.is(aliasesDeclared.length, candidateCount, 'all ' + candidateCount + ' candidates aliased');
-    // Aliases 0–25: a through z
     const lowercaseExpected = 'abcdefghijklmnopqrstuvwxyz';
     for (let iL1 = 0; iL1 < 26; iL1++) {
         t.is(aliasesDeclared[iL1], lowercaseExpected[iL1], 'alias ' + iL1 + ' is ' + lowercaseExpected[iL1]);
     }
-    // Aliases 26–51: A through Z
     const uppercaseExpected = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     for (let iL1 = 26; iL1 < 52; iL1++) {
         t.is(aliasesDeclared[iL1], uppercaseExpected[iL1 - 26], 'alias ' + iL1 + ' is ' + uppercaseExpected[iL1 - 26]);
     }
-    // Alias 52: aa
     t.is(aliasesDeclared[52], 'aa', 'alias 52 is aa');
-    // Alias 78: aA (first two-char mixed-case alias in bijective base-52)
     t.is(aliasesDeclared[78], 'aA', 'alias 78 is aA');
     t.true(result.length < source.length, 'output shorter than input');
     assertValidOutput(t, result);
     t.is(TerserCompanion(source), result, 'deterministic output');
 });
-// ── Contract 22: uppercase collision with existing A ──────────────────────────
 test('uppercase alias collision with existing A skips to B', (t) => {
     const preamble = 'var A = 0;\n';
     const candidateCount = 27;
@@ -464,38 +414,30 @@ test('uppercase alias collision with existing A skips to B', (t) => {
     }
     const source = preamble + lines.join('\n') + '\n';
     const result = TerserCompanion(source);
-    // Extract aliases from the const declaration
     const constEnd = result.indexOf(';');
     const declaration = result.slice(0, constEnd);
     const aliasesDeclared = declaration.replace('const ', '').split(',').map((part) => part.split('=')[0]);
     t.is(aliasesDeclared.length, candidateCount, 'all ' + candidateCount + ' candidates aliased');
-    // Aliases 0–25: a through z
     const lowercaseExpected = 'abcdefghijklmnopqrstuvwxyz';
     for (let iL1 = 0; iL1 < 26; iL1++) {
         t.is(aliasesDeclared[iL1], lowercaseExpected[iL1], 'alias ' + iL1 + ' is ' + lowercaseExpected[iL1]);
     }
-    // Alias 26: B (A was skipped due to collision in source)
     t.is(aliasesDeclared[26], 'B', 'alias 26 is B (A was skipped)');
-    // No 'A' in the alias list
     t.false(aliasesDeclared.includes('A'), 'alias list must not contain A');
     t.true(result.length < source.length, 'output shorter than input');
     assertValidOutput(t, result);
 });
-// ── Contract 23: CaseClause string literal aliasing with leading separator ────
 test('CaseClause string literals are aliased with leading separator', (t) => {
     const source = 'switch(e){case"Array":f();break;case"Array":g();break;case"Array":h();break;case"Array":i()}';
     const result = TerserCompanion(source);
     t.true(result.length < source.length, 'output must be shorter than input');
-    // Each occurrence must have `case <alias>:` with required whitespace; no `case<alias>:` fusion
     const caseAliasCount = (result.match(/\bcase [a-z]:/g) || []).length;
     t.is(caseAliasCount, 4, 'all four clauses must use alias with space after case');
     const fusedCase = result.match(/\bcase[a-z]:/g);
     t.falsy(fusedCase, 'no fused case<alias>: token');
-    // Original literal appears only once (in the alias initializer)
     const literalCount = (result.match(/"Array"/g) || []).length;
     t.is(literalCount, 1, 'original literal must appear exactly once');
     assertValidOutput(t, result);
-    // Walk the output AST and verify it still contains four CaseClause nodes
     const parsed = ts.createSourceFile('verify.js', result, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
     let caseClauseCount = 0;
     function countClauses(node) {
@@ -507,7 +449,6 @@ test('CaseClause string literals are aliased with leading separator', (t) => {
     countClauses(parsed);
     t.is(caseClauseCount, 4, 'output must contain exactly four CaseClause nodes');
 });
-// ── Contract 24: generic left boundary (typeof"…") ────────────────────────────
 test('typeof left boundary requires separator space', (t) => {
     const literal = 'left_boundary_test_repeated_literal_string_xyz';
     const source = [
@@ -518,14 +459,12 @@ test('typeof left boundary requires separator space', (t) => {
     ].join('\n') + '\n';
     const result = TerserCompanion(source);
     t.true(result.length < source.length, 'output must be shorter than input');
-    // Each typeof must have a space before the alias
     const typeOfAliasCount = (result.match(/\btypeof [a-z];/g) || []).length;
     t.is(typeOfAliasCount, 4, 'all four typeof expressions must have space before alias');
     const fusedTypeof = result.match(/\btypeof[a-z];/g);
     t.falsy(fusedTypeof, 'no fused typeof<alias> token');
     assertValidOutput(t, result);
 });
-// ── Contract 25: generic right boundary ("…" in) ──────────────────────────────
 test('"…" in expression right boundary requires separator space', (t) => {
     const literal = 'right_boundary_test_repeated_literal_string_xyz';
     const source = [
@@ -536,14 +475,12 @@ test('"…" in expression right boundary requires separator space', (t) => {
     ].join('\n') + '\n';
     const result = TerserCompanion(source);
     t.true(result.length < source.length, 'output must be shorter than input');
-    // Each alias must have a space before `in`
     const aliasInCount = (result.match(/\b[a-z] in [a-z];/g) || []).length;
     t.is(aliasInCount, 4, 'all four in-expressions must have space between alias and in');
     const fusedIn = result.match(/\b[a-z]in [a-z];/g);
     t.falsy(fusedIn, 'no fused <alias>in token');
     assertValidOutput(t, result);
 });
-// ── Contract 26: mixed contexts per-occurrence separators ─────────────────────
 test('mixed contexts apply separators per occurrence', (t) => {
     const literal = 'mixed_context_test_repeated_literal_string_xyz';
     const source = [
@@ -552,33 +489,23 @@ test('mixed contexts apply separators per occurrence', (t) => {
         'switch(e){case"' + literal + '":f();break;case"' + literal + '":g();break}'
     ].join('\n') + '\n';
     const result = TerserCompanion(source);
-    // All four occurrences must be aliased
     const literalPattern = new RegExp('"' + literal + '"', 'g');
     const literalCount = (result.match(literalPattern) || []).length;
     t.is(literalCount, 1, 'original literal must appear exactly once');
     t.true(result.length < source.length, 'output must be shorter than input');
     assertValidOutput(t, result);
 });
-// ── Contract 27: separator-cost boundary rejects break-even case ──────────────
 test('separator cost deduction rejects break-even case', (t) => {
-    // Two occurrences of "abcdefghijk" (13 chars with quotes). With alias length 1,
-    // separator count 2, candidate overhead 2, and corrected fixed declaration cost 6:
-    // 26 - 13 - 2 - 3 - 2 - 6 = 0 → not profitable.
     const source = 'switch(x){case"abcdefghijk":case"abcdefghijk":break}';
     t.is(TerserCompanion(source), source, 'break-even case must remain unchanged');
 });
-// ── Contract 28: exact declaration-cost one-character saving ──────────────────
 test('exact declaration-cost one-character saving', (t) => {
-    // Two occurrences of "abcdefghij" (12 chars with quotes). With corrected
-    // fixedAliasDeclarationOverhead=6, the saving is 1 char.
-    // Old formula with 7 would reject this.
     const source = 'x="abcdefghij";y="abcdefghij";';
     const result = TerserCompanion(source);
     t.is(result, 'const a="abcdefghij";x=a;y=a;', 'output must match exact expected alias form');
     t.true(result.length < source.length, 'output must be strictly shorter than input');
     assertValidOutput(t, result);
 });
-// ── Contract 29: delete literal operand protection ────────────────────────────
 test('direct delete operand remains literal while safe occurrences alias', (t) => {
     const literal = 'a repeated delete literal long enough for alias';
     const source = [
@@ -594,12 +521,10 @@ test('direct delete operand remains literal while safe occurrences alias', (t) =
     t.is(literalCount, 2, 'literal appears exactly twice: alias initializer plus delete operand');
     assertValidOutput(t, result);
 });
-// ── Contract 30: with statement passthrough ────────────────────────────────────
 test('with statement combined with profitable candidates returns unchanged', (t) => {
     const source = 'with( obj ) {\nvar a = "repeated long profitable string which should remain";\nvar b = "repeated long profitable string which should remain";\n}\n';
     t.is(TerserCompanion(source), source);
 });
-// ── Contract 31: direct eval passthrough ───────────────────────────────────────
 test('direct eval with profitable candidate returns unchanged', (t) => {
     const source = 'eval( "code" );\nvar a = "a long profitable repeated string that would otherwise be aliased";\nvar b = "a long profitable repeated string that would otherwise be aliased";\n';
     t.is(TerserCompanion(source), source);
@@ -608,11 +533,7 @@ test('parenthesized direct eval with profitable candidate returns unchanged', (t
     const source = '( eval )( "code" );\nvar a = "a long profitable repeated string that would otherwise be aliased too";\nvar b = "a long profitable repeated string that would otherwise be aliased too";\n';
     t.is(TerserCompanion(source), source);
 });
-// ── Contract 32: non-direct eval and Function transform normally ────────────────
 test('indirect eval, property eval, optional eval, and Function still transform candidates', (t) => {
-    // All sources below must result in aliased output (shorter) because
-    // indirect eval, property eval, optional eval, and Function do not
-    // trigger the unsupported-statement passthrough.
     const tests = [
         {
             description: 'comma-indirect eval',
@@ -641,7 +562,6 @@ test('indirect eval, property eval, optional eval, and Function still transform 
         t.true(TerserCompanion(source).length < source.length, description + ' must be transformed');
     }
 });
-// ── Contract 33: require and require.resolve first-argument protection ──────────
 test('direct require and require.resolve first argument remains literal', (t) => {
     const literal = 'a-very-long-module-name-for-require-protection-test';
     const source = [
@@ -684,7 +604,6 @@ test('indirect require is not protected, same string aliases', (t) => {
     t.true(result.length < source.length, 'output shorter (indirect require not protected)');
     assertValidOutput(t, result);
 });
-// ── Contract 34: independent same-root function aliases ────────────────────────
 test('independent same-root function candidates', (t) => {
     const source = [
         'var a0 = Math.floor( 1.5 );', 'var a1 = Math.floor( 2.5 );',
@@ -702,7 +621,6 @@ test('independent same-root function candidates', (t) => {
     t.is(roundInits, 1, 'Math.round appears only in the declaration initializer');
     assertValidOutput(t, result);
 });
-// ── Contract 35: class precedence over function paths ──────────────────────────
 test('class root takes precedence over overlapping function path', (t) => {
     const source = [
         'var a = Array.isArray( x );', 'var b = Array.from( y );',
@@ -718,16 +636,11 @@ test('class root takes precedence over overlapping function path', (t) => {
     t.true(result.length < source.length, 'output shorter');
     t.regex(result, /[a-z]+=Array\b/, 'Array is a root-class alias');
     t.regex(result, /[a-z]+=Math\.floor\b/, 'Math.floor is an independent exact alias');
-    // Array.from should not appear as an independent initializer; it uses the root
     const arrayFromInit = result.match(/\bconst\s+[a-z]+=Array\.from\b/);
     t.falsy(arrayFromInit, 'Array.from is not an independent initializer');
     assertValidOutput(t, result);
 });
-// ── Contract 36: reverse-alphabetical encounter-order tiebreak ─────────────────
 test('reverse-alphabetical encounter-order tiebreak replaces localeCompare', (t) => {
-    // Two string candidates with identical count, initializer length, and
-    // replaced length. zzzz appears first in source; stable sort preserves
-    // encounter order, so zzzz comes before aaaa in the declaration.
     const source = [
         'var z = "zzzz_really_really_long_profitable_repeated";',
         'var z2 = "zzzz_really_really_long_profitable_repeated";',
@@ -736,25 +649,20 @@ test('reverse-alphabetical encounter-order tiebreak replaces localeCompare', (t)
     ].join('\n') + '\n';
     const result = TerserCompanion(source);
     t.true(result.length < source.length, 'output shorter');
-    // Extract the top-level alias declaration
     const constStartR = result.indexOf('const ');
     const declEndR = result.indexOf(';\n', constStartR);
     const declR = result.slice(constStartR, declEndR);
-    // Assert each initializer occurs exactly once in the declaration
     const zzzzInDecl = (declR.match(/"zzzz_really_really_long_profitable_repeated"/g) || []).length;
     t.is(zzzzInDecl, 1, 'zzzz initializer appears exactly once in declaration');
     const aaaaInDeclR = (declR.match(/"aaaa_really_really_long_profitable_repeated"/g) || []).length;
     t.is(aaaaInDeclR, 1, 'aaaa initializer appears exactly once in declaration');
-    // Assert each original literal appears exactly once in full output (declaration only)
     const zzzzTotal = (result.match(/"zzzz_really_really_long_profitable_repeated"/g) || []).length;
     t.is(zzzzTotal, 1, 'zzzz literal appears exactly once in output');
     const aaaaTotalR = (result.match(/"aaaa_really_really_long_profitable_repeated"/g) || []).length;
     t.is(aaaaTotalR, 1, 'aaaa literal appears exactly once in output');
-    // Assert declaration order follows encounter order (zzzz before aaaa)
     t.true(declR.indexOf('zzzz') < declR.indexOf('aaaa'), 'zzzz initializer precedes aaaa in declaration');
     assertValidOutput(t, result);
 });
-// ── Contract 37: first profitable function occurrence at insertion.point ──────
 test('plain source: first Math.floor starts at insertion point 0', (t) => {
     const source = 'Math.floor(1.5);var b=Math.floor(2.5);var c=Math.floor(3.5);var d=Math.floor(4.5);';
     const result = TerserCompanion(source);
@@ -783,7 +691,6 @@ test('shebang newline followed immediately by Math.floor calls', (t) => {
     t.true(result.startsWith('#!/usr/bin/env node\nconst '), 'declaration after shebang newline');
     assertValidOutput(t, result);
 });
-// ── Contract 38: strengthened require literal assertions ───────────────────────
 test('require first argument literal is preserved verbatim', (t) => {
     const literal = 'a-very-long-module-name-for-require-protection-test';
     const source = [
@@ -814,7 +721,6 @@ test('require.resolve first argument literal is preserved verbatim', (t) => {
     t.is(resolveMatchCount, 2, 'both require.resolve( "literal" ) calls retain the literal in output');
     assertValidOutput(t, result);
 });
-// ── Contract 39: negative-predicate require forms are not protected ────────────
 test('non-direct require forms still alias the first string argument', (t) => {
     const literal = 'a-very-long-repeated-literal-for-non-direct-require-test';
     const tests = [
@@ -879,7 +785,6 @@ test('non-direct require.resolve forms still alias the first string argument', (
         t.true(TerserCompanion(source).length < source.length, description + ' must be transformed');
     }
 });
-// ── Contract 40: config-order full-tie regressions ────────────────────────────
 test('config-order tiebreak for exact functions with equal lengths and counts', (t) => {
     const source = [
         'var a = Alfa.run( 1 );', 'var b = Alfa.run( 2 );', 'var c = Alfa.run( 3 );',
@@ -891,21 +796,17 @@ test('config-order tiebreak for exact functions with equal lengths and counts', 
         functionsToAlias: ['Zulu.run', 'Alfa.run']
     });
     t.true(result.length < source.length, 'output shorter');
-    // Extract the top-level alias declaration
     const constStartF = result.indexOf('const ');
     const declEndF = result.indexOf(';\n', constStartF);
     const declF = result.slice(constStartF, declEndF);
-    // Assert each expected initializer occurs exactly once in the declaration
     const zuluInDecl = (declF.match(/\bZulu\.run\b/g) || []).length;
     t.is(zuluInDecl, 1, 'Zulu.run initializer appears exactly once in declaration');
     const alfaInDecl = (declF.match(/\bAlfa\.run\b/g) || []).length;
     t.is(alfaInDecl, 1, 'Alfa.run initializer appears exactly once in declaration');
-    // Assert each original initializer appears exactly once in full output (declaration only)
     const zuluTotal = (result.match(/\bZulu\.run\b/g) || []).length;
     t.is(zuluTotal, 1, 'Zulu.run appears exactly once in output');
     const alfaTotal = (result.match(/\bAlfa\.run\b/g) || []).length;
     t.is(alfaTotal, 1, 'Alfa.run appears exactly once in output');
-    // Assert declaration order follows configured order (Zulu before Alfa)
     t.true(declF.indexOf('Zulu.run') < declF.indexOf('Alfa.run'), 'Zulu.run initializer precedes Alfa.run per config order');
     assertValidOutput(t, result);
 });
@@ -920,21 +821,17 @@ test('config-order tiebreak for class roots with equal lengths and counts', (t) 
         classesToAlias: ['ZuluRoot', 'AlfaRoot']
     });
     t.true(result.length < source.length, 'output shorter');
-    // Extract the top-level alias declaration
     const constStartC = result.indexOf('const ');
     const declEndC = result.indexOf(';\n', constStartC);
     const declC = result.slice(constStartC, declEndC);
-    // Assert each expected initializer occurs exactly once in the declaration
     const zuluRootInDecl = (declC.match(/\bZuluRoot\b/g) || []).length;
     t.is(zuluRootInDecl, 1, 'ZuluRoot initializer appears exactly once in declaration');
     const alfaRootInDecl = (declC.match(/\bAlfaRoot\b/g) || []).length;
     t.is(alfaRootInDecl, 1, 'AlfaRoot initializer appears exactly once in declaration');
-    // Assert each original initializer appears exactly once in full output (declaration only)
     const zuluRootTotal = (result.match(/\bZuluRoot\b/g) || []).length;
     t.is(zuluRootTotal, 1, 'ZuluRoot appears exactly once in output');
     const alfaRootTotal = (result.match(/\bAlfaRoot\b/g) || []).length;
     t.is(alfaRootTotal, 1, 'AlfaRoot appears exactly once in output');
-    // Assert declaration order follows configured order (ZuluRoot before AlfaRoot)
     t.true(declC.indexOf('ZuluRoot') < declC.indexOf('AlfaRoot'), 'ZuluRoot initializer precedes AlfaRoot per config order');
     assertValidOutput(t, result);
 });

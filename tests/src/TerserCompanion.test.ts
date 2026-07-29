@@ -1,7 +1,7 @@
 import test from 'ava';
 import type { ExecutionContext } from 'ava';
 import * as ts from 'typescript';
-import TerserCompanion from './TerserCompanion.js';
+import TerserCompanion from '../../dist/TerserCompanion.js';
 
 type Nullable<T> = T | null;
 
